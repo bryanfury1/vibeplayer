@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
@@ -168,6 +169,7 @@ fun VibeApp(player: PlayerController) {
     }
     var tab by remember { mutableIntStateOf(0) }
     var openGroup by remember { mutableStateOf<TrackGroup?>(null) }
+    var openPlaylistId by remember { mutableStateOf<String?>(null) }
     var folders by remember { mutableStateOf(FolderStore.load(context)) }
     var showFolders by remember { mutableStateOf(false) }
 
@@ -227,6 +229,7 @@ fun VibeApp(player: PlayerController) {
             "Artists" to Icons.Rounded.Person,
             "Albums" to Icons.Rounded.Album,
             "Genres" to Icons.Rounded.Category,
+            "Playlists" to Icons.Rounded.PlaylistPlay,
         )
         Scaffold(
             bottomBar = {
@@ -241,6 +244,7 @@ fun VibeApp(player: PlayerController) {
                                 onClick = {
                                     tab = index
                                     openGroup = null
+                                    openPlaylistId = null
                                 },
                                 icon = { Icon(icon, contentDescription = label) },
                                 label = { Text(label) },
@@ -274,9 +278,17 @@ fun VibeApp(player: PlayerController) {
                     val albums = remember(player.library) { albumGroups(player.library) }
                     GroupListScreen("Albums", albums, padding) { openGroup = it }
                 }
-                else -> {
+                4 -> {
                     val genres = remember(player.library) { genreGroups(player.library) }
                     GroupListScreen("Genres", genres, padding) { openGroup = it }
+                }
+                else -> {
+                    val playlistId = openPlaylistId
+                    if (playlistId != null) {
+                        PlaylistDetailScreen(playlistId, player, padding, onBack = { openPlaylistId = null })
+                    } else {
+                        PlaylistsScreen(player, padding, onOpen = { openPlaylistId = it })
+                    }
                 }
             }
         }
@@ -336,6 +348,10 @@ fun VibeApp(player: PlayerController) {
         EditTagsDialog(editing, onDismiss = { TagEditorState.track = null })
     }
 
+    PlaylistPicker.track?.let { picking ->
+        AddToPlaylistDialog(picking, onDismiss = { PlaylistPicker.track = null })
+    }
+
     if (showFolders) {
         FoldersDialog(
             folders = folders,
@@ -351,6 +367,7 @@ fun VibeApp(player: PlayerController) {
 
     // Back closes an open artist/album/genre page.
     BackHandler(enabled = openGroup != null) { openGroup = null }
+    BackHandler(enabled = tab == 5 && openPlaylistId != null) { openPlaylistId = null }
     // The phone's Back button closes the Now Playing screen first.
     BackHandler(enabled = showNowPlaying) { showNowPlaying = false }
     // Declared after the one above, so Back closes the Queue first.
@@ -521,6 +538,13 @@ fun TrackRow(
                     onClick = {
                         menuOpen = false
                         onAddToQueue()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to playlist") },
+                    onClick = {
+                        menuOpen = false
+                        PlaylistPicker.track = track
                     },
                 )
                 DropdownMenuItem(
