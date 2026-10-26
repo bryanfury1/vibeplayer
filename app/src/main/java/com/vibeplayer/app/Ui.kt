@@ -115,8 +115,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun VibeTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val colors = if (Build.VERSION.SDK_INT >= 31) dynamicDarkColorScheme(context) else darkColorScheme()
-    MaterialTheme(colorScheme = colors, content = content)
+    VibeThemeImpl(content)
 }
 
 // ---------------------------------------------------------------------------
@@ -203,10 +202,10 @@ fun VibeApp(player: PlayerController) {
     }
 
     // Scan the chosen folders whenever we get permission or the folder list changes.
-    LaunchedEffect(hasPermission, folders, LibraryEvents.version) {
+    LaunchedEffect(hasPermission, folders, LibraryEvents.version, ExtraSettings.libraryRevision) {
         if (hasPermission) {
             loading = true
-            player.updateLibrary(LibraryRepository.load(context, folders))
+            player.updateLibrary(applyLibraryFilters(LibraryRepository.load(context, folders)))
             loading = false
         }
     }

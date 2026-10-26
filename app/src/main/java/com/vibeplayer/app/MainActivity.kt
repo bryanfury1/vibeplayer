@@ -15,6 +15,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge() // lets the app draw behind the status bar and navigation bar
         PlayHistory.load(applicationContext)
         AppSettings.load(applicationContext)
+        ExtraSettings.load(applicationContext)
+        BlacklistStore.load(applicationContext)
         PlaylistStore.load(applicationContext)
         player = PlayerController(applicationContext)
         player.connect()

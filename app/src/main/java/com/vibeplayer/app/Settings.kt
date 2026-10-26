@@ -115,6 +115,8 @@ fun SettingsScreen(
                 )
             }
 
+            AppearanceSettingsSection()
+
             // ---- Idle screen ----
             SettingsHeader("Idle screen")
             SwitchRow(
@@ -276,6 +278,10 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+
+            MoreSettingsSections()
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
 
