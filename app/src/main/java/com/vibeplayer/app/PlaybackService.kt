@@ -94,6 +94,7 @@ class PlaybackService : MediaSessionService() {
         })
 
         historyPlayer = player
+        ServiceHooks.attach(applicationContext, player)
         handler.postDelayed(historyTicker, 1000L)
 
         mediaSession = MediaSession.Builder(this, player).build()
@@ -121,6 +122,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(historyTicker)
+        ServiceHooks.detach()
         historyPlayer = null
         mediaSession?.run {
             player.release()

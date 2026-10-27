@@ -207,7 +207,7 @@ object ArtworkLoader {
 
         return withContext(Dispatchers.IO) {
             try {
-                val bitmap = context.contentResolver.loadThumbnail(track.uri, Size(sizePx, sizePx), null)
+                val bitmap = ImageDiskCache.getOrLoad(context, track, sizePx)
                 cache.put(key, bitmap)
                 bitmap
             } catch (e: Exception) {

@@ -179,9 +179,15 @@ private fun DeletePlaylistDialog(name: String, onConfirm: () -> Unit, onDismiss:
     )
 }
 
-/** The pop-up behind "Add to playlist": pick a playlist, or make a new one. */
+/** The pop-up behind "Add to playlist" for one song. */
 @Composable
 fun AddToPlaylistDialog(track: Track, onDismiss: () -> Unit) {
+    AddToPlaylistDialog(listOf(track), onDismiss)
+}
+
+/** The same pop-up for several songs at once (for example a whole album): pick a playlist, or make a new one. */
+@Composable
+fun AddToPlaylistDialog(tracks: List<Track>, onDismiss: () -> Unit) {
     val context = LocalContext.current
     var creating by remember { mutableStateOf(false) }
     val playlists = PlaylistStore.playlists
@@ -192,7 +198,7 @@ fun AddToPlaylistDialog(track: Track, onDismiss: () -> Unit) {
             initial = "",
             confirmLabel = "Create",
             onConfirm = { name ->
-                val playlist = PlaylistStore.create(name, listOf(track.toEntry()))
+                val playlist = PlaylistStore.create(name, tracks.map { it.toEntry() })
                 Toast.makeText(context, "Added to \"${playlist.name}\"", Toast.LENGTH_SHORT).show()
                 onDismiss()
             },
@@ -214,10 +220,10 @@ fun AddToPlaylistDialog(track: Track, onDismiss: () -> Unit) {
                             Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val added = PlaylistStore.addTracks(playlist.id, listOf(track))
+                                    val added = PlaylistStore.addTracks(playlist.id, tracks)
                                     Toast.makeText(
                                         context,
-                                        if (added > 0) "Added to \"${playlist.name}\""
+                                        if (added > 0) "Added $added to \"${playlist.name}\""
                                         else "Already in \"${playlist.name}\"",
                                         Toast.LENGTH_SHORT,
                                     ).show()
@@ -255,7 +261,8 @@ fun PlaylistsScreen(
     padding: PaddingValues,
     onOpen: (String) -> Unit,
 ) {
-    val playlists = PlaylistStore.playlists
+    // Favorite songs always comes first.
+    val playlists = PlaylistStore.playlists.sortedBy { if (it.id == FAVORITES_ID) 0 else 1 }
     val byKey = remember(player.library) { player.library.associateBy { it.key } }
     var showCreate by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Playlist?>(null) }
@@ -285,6 +292,16 @@ fun PlaylistsScreen(
             }
         }
 
+        if (playlists.size <= 1) {
+            item {
+                Text(
+                    "Tap + to make a playlist, or Import to load a .m3u or .m3u8 playlist file. " +
+                        "Use the heart on a song to add it to Favorite songs.",
+                    Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         if (playlists.isEmpty()) {
             item {
                 Text(
@@ -344,13 +361,15 @@ fun PlaylistsScreen(
                                     }
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("Rename") },
-                                onClick = {
-                                    menuOpen = false
-                                    renaming = playlist
-                                },
-                            )
+                            if (playlist.id != FAVORITES_ID) {
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    onClick = {
+                                        menuOpen = false
+                                        renaming = playlist
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Export as .m3u8 file") },
                                 onClick = {
@@ -358,13 +377,15 @@ fun PlaylistsScreen(
                                     exportPlaylist(playlist)
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("Delete") },
-                                onClick = {
-                                    menuOpen = false
-                                    deleting = playlist
-                                },
-                            )
+                            if (playlist.id != FAVORITES_ID) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        menuOpen = false
+                                        deleting = playlist
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -458,13 +479,15 @@ private fun PlaylistDetailContent(
                         Icon(Icons.Rounded.MoreVert, contentDescription = "Playlist options")
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Rename") },
-                            onClick = {
-                                menuOpen = false
-                                renaming = true
-                            },
-                        )
+                        if (playlist.id != FAVORITES_ID) {
+                            DropdownMenuItem(
+                                text = { Text("Rename") },
+                                onClick = {
+                                    menuOpen = false
+                                    renaming = true
+                                },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Export as .m3u8 file") },
                             onClick = {
@@ -472,13 +495,15 @@ private fun PlaylistDetailContent(
                                 exportPlaylist(playlist)
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text("Delete playlist") },
-                            onClick = {
-                                menuOpen = false
-                                deleting = true
-                            },
-                        )
+                        if (playlist.id != FAVORITES_ID) {
+                            DropdownMenuItem(
+                                text = { Text("Delete playlist") },
+                                onClick = {
+                                    menuOpen = false
+                                    deleting = true
+                                },
+                            )
+                        }
                     }
                 }
             }

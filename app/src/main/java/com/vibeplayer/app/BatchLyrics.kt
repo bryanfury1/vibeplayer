@@ -65,6 +65,12 @@ object BatchLyrics {
                         continue
                     }
 
+                    if (ExtraSettings.lyricsMissCacheEnabled && LyricsMisses.recentlyMissed(app, track)) {
+                        notFound++
+                        done++
+                        continue
+                    }
+
                     try {
                         val artist = splitArtists(track.artist).first()
                         var results = LrcLib.searchFields(track.title, artist)
@@ -85,6 +91,7 @@ object BatchLyrics {
                         val text = best?.synced ?: best?.plain
                         if (text == null) {
                             notFound++
+                            LyricsMisses.record(app, track)
                         } else if (LyricsRepository.save(app, track, text)) {
                             found++
                             if (embed) {

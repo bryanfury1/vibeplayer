@@ -301,6 +301,7 @@ class PlayerController(private val context: Context) {
 
     private fun applyVolume() {
         controller?.volume = if (muted) 0f else volume
+        if (ExtraSettings.pauseOnZeroVolume && (muted || volume == 0f)) controller?.pause()
     }
 
     private fun Track.toMediaItem(): MediaItem {

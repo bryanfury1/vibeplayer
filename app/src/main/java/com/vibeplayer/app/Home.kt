@@ -203,24 +203,31 @@ fun HomeScreen(
                     )
                 }
             } else {
-                item { SectionTitle("Recently played songs") }
-                item { SongCarousel(playedSongs, player) }
+                if (ExtraSettings.homeRecentSongs) {
+                    item { SectionTitle("Recently played songs") }
+                    item { SongCarousel(playedSongs, player) }
+                }
             }
-            if (playedArtists.isNotEmpty()) {
+            if (playedArtists.isNotEmpty() && ExtraSettings.homeRecentArtists) {
                 item { SectionTitle("Recently played artists") }
                 item { GroupCarousel(playedArtists, round = true, onOpenGroup = onOpenGroup) }
             }
-            if (playedAlbums.isNotEmpty()) {
+            if (playedAlbums.isNotEmpty() && ExtraSettings.homeRecentAlbums) {
                 item { SectionTitle("Recently played albums") }
                 item { GroupCarousel(playedAlbums, round = false, onOpenGroup = onOpenGroup) }
             }
 
-            item { SectionTitle("Recently added songs") }
-            item { SongCarousel(addedSongs, player) }
-            item { SectionTitle("Recently added albums") }
-            item { GroupCarousel(addedAlbums, round = false, onOpenGroup = onOpenGroup) }
+            if (ExtraSettings.homeAddedSongs) {
+                item { SectionTitle("Recently added songs") }
+                item { SongCarousel(addedSongs, player) }
+            }
+            if (ExtraSettings.homeAddedAlbums) {
+                item { SectionTitle("Recently added albums") }
+                item { GroupCarousel(addedAlbums, round = false, onOpenGroup = onOpenGroup) }
+            }
 
-            item { SectionTitle("Most played songs") }
+            if (ExtraSettings.homeMostPlayed) {
+                item { SectionTitle("Most played songs") }
             item {
                 Row(
                     Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
@@ -252,6 +259,7 @@ fun HomeScreen(
                         onClick = { player.playList(topTracks, index) },
                     )
                 }
+            }
             }
             item { Spacer(Modifier.height(16.dp)) }
         }
@@ -318,12 +326,7 @@ private fun GroupCarousel(
                     .clickable { onOpenGroup(group) },
                 horizontalAlignment = if (round) Alignment.CenterHorizontally else Alignment.Start,
             ) {
-                Artwork(
-                    group.tracks.first(),
-                    sizePx = 384,
-                    modifier = Modifier.size(140.dp),
-                    corner = if (round) 70.dp else 12.dp,
-                )
+                GroupArtwork(group, sizePx = 384, modifier = Modifier.size(140.dp), corner = if (round) 70.dp else 12.dp)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     group.title,

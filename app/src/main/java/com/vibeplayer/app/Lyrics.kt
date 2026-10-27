@@ -123,7 +123,17 @@ object LyricsRepository {
     }
 
     /** Looks for lyrics for this song. If two copies exist, the newer one wins. */
-    suspend fun load(context: Context, track: Track): Lyrics? = withContext(Dispatchers.IO) {
+    suspend fun load(context: Context, track: Track): Lyrics? {
+        if (ExtraSettings.lyricsCacheEnabled) {
+            val remembered = LyricsCache.get(track.key)
+            if (remembered != null) return remembered.lyrics
+        }
+        val loaded = loadUncached(context, track)
+        if (ExtraSettings.lyricsCacheEnabled) LyricsCache.put(track.key, loaded)
+        return loaded
+    }
+
+    private suspend fun loadUncached(context: Context, track: Track): Lyrics? = withContext(Dispatchers.IO) {
         val candidates = listOfNotNull(sidecarFile(track), privateFile(context, track), legacyPrivateFile(context, track))
             .filter { it.isFile }
             .sortedByDescending { it.lastModified() }
@@ -161,7 +171,13 @@ object LyricsRepository {
     }
 
     /** Saves lyrics as a .lrc file next to the song if allowed, otherwise inside the app. */
-    suspend fun save(context: Context, track: Track, lrcText: String): Boolean =
+    suspend fun save(context: Context, track: Track, lrcText: String): Boolean {
+        val saved = saveUncached(context, track, lrcText)
+        LyricsCache.remove(track.key)
+        return saved
+    }
+
+    private suspend fun saveUncached(context: Context, track: Track, lrcText: String): Boolean =
         withContext(Dispatchers.IO) {
             val next = sidecarFile(track)
             if (next != null && hasAllFilesAccess()) {
