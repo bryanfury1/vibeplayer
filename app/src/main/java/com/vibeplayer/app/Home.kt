@@ -326,12 +326,7 @@ private fun GroupCarousel(
                     .clickable { onOpenGroup(group) },
                 horizontalAlignment = if (round) Alignment.CenterHorizontally else Alignment.Start,
             ) {
-                Artwork(
-                    group.tracks.first(),
-                    sizePx = 384,
-                    modifier = Modifier.size(140.dp),
-                    corner = if (round) 70.dp else 12.dp,
-                )
+                GroupArtwork(group, sizePx = 384, modifier = Modifier.size(140.dp), corner = if (round) 70.dp else 12.dp)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     group.title,

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -25,23 +26,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -328,8 +337,236 @@ fun MoreSettingsSections() {
 
     HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+    // ---- Equalizer ----
+    EqualizerSettings()
+
+    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+    // ---- Artists ----
+    ArtistSettings()
+
+    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+    // ---- Caching ----
+    CachingSettings()
+
+    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
     // ---- Backup and restore ----
     BackupSettings()
+}
+
+// ---------------------------------------------------------------------------
+// Equalizer
+// ---------------------------------------------------------------------------
+private fun formatHz(hz: Int): String =
+    if (hz >= 1000) "%.1f kHz".format(hz / 1000f).replace(".0 ", " ") else "$hz Hz"
+
+/** Changes one band, keeping the others as they are. Moving a slider by hand makes the preset "Custom". */
+private fun setEqBand(band: Int, level: Int, info: EqInfo) {
+    val updated = MutableList(info.bandCount) { ExtraSettings.eqLevels.getOrElse(it) { 0 } }
+    updated[band] = level
+    ExtraSettings.eqLevels = updated
+    ExtraSettings.eqPreset = "Custom"
+    ServiceHooks.applyEqualizer()
+}
+
+@Composable
+private fun EqualizerSettings() {
+    val context = LocalContext.current
+    val info = ServiceHooks.eqInfo
+
+    ExtraHeader("Equalizer")
+    ExtraSwitchRow(
+        title = "Use the equalizer",
+        subtitle = null,
+        checked = ExtraSettings.eqEnabled,
+        onChange = {
+            ExtraSettings.eqEnabled = it
+            ExtraSettings.save(context)
+            ServiceHooks.applyEqualizer()
+        },
+    )
+    if (info == null) {
+        ExtraNote(
+            "The equalizer is set up once the music player starts. Play a song, then come back here " +
+                "to shape the sound. If this message stays, your phone doesn't offer an equalizer."
+        )
+        return
+    }
+
+    Text(
+        "Preset",
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Row(
+        Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        EqPresets.names.forEach { name ->
+            FilterChip(
+                selected = ExtraSettings.eqPreset == name,
+                onClick = {
+                    ExtraSettings.eqLevels = EqPresets.levels(name, info)
+                    ExtraSettings.eqPreset = name
+                    ExtraSettings.save(context)
+                    ServiceHooks.applyEqualizer()
+                },
+                label = { Text(name) },
+            )
+        }
+    }
+
+    Text(
+        "Fine-tune each frequency",
+        Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    for (band in 0 until info.bandCount) {
+        val level = ExtraSettings.eqLevels.getOrElse(band) { 0 }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                formatHz(info.centerHz[band]),
+                Modifier.width(64.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Slider(
+                value = level.toFloat(),
+                onValueChange = { setEqBand(band, it.roundToInt(), info) },
+                onValueChangeFinished = { ExtraSettings.save(context) },
+                valueRange = info.minLevel.toFloat()..info.maxLevel.toFloat(),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "%+.0f dB".format(level / 100f),
+                Modifier.width(56.dp),
+                textAlign = TextAlign.End,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Artist pictures and bios
+// ---------------------------------------------------------------------------
+@Composable
+private fun ArtistSettings() {
+    val context = LocalContext.current
+    ExtraHeader("Artists")
+    ExtraSwitchRow(
+        title = "Artist pictures and bios from the internet",
+        subtitle = "Shows an artist's photo (from Deezer) and a short bio (from Wikipedia). " +
+            "Artist names are sent to those services to look them up. Turn off to only use album art.",
+        checked = ExtraSettings.artistInfoEnabled,
+        onChange = {
+            ExtraSettings.artistInfoEnabled = it
+            ExtraSettings.save(context)
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Caching of album art and lyrics
+// ---------------------------------------------------------------------------
+@Composable
+private fun CachingSettings() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var refresh by remember { mutableIntStateOf(0) }
+    var imageBytes by remember { mutableLongStateOf(-1L) }
+    var missCount by remember { mutableIntStateOf(0) }
+
+    // Measure the cache whenever the screen opens or something changes.
+    LaunchedEffect(refresh) {
+        imageBytes = withContext(Dispatchers.IO) { ImageDiskCache.sizeBytes(context) }
+        missCount = withContext(Dispatchers.IO) { LyricsMisses.count(context) }
+    }
+
+    ExtraHeader("Caching")
+
+    ExtraSwitchRow(
+        title = "Keep pictures on the phone",
+        subtitle = "Saves small copies of album art, artist photos and bios, so they appear faster and still do after the app restarts.",
+        checked = ExtraSettings.imageCacheEnabled,
+        onChange = {
+            ExtraSettings.imageCacheEnabled = it
+            ExtraSettings.save(context)
+        },
+    )
+    val limits = listOf(50, 100, 250, 500)
+    OptionChips(
+        "Picture cache limit",
+        limits.map { "$it MB" },
+        limits.indexOf(ExtraSettings.imageCacheMb).coerceAtLeast(0),
+    ) { index ->
+        ExtraSettings.imageCacheMb = limits[index]
+        ExtraSettings.save(context)
+        scope.launch {
+            withContext(Dispatchers.IO) { ImageDiskCache.trim(context) }
+            refresh++
+        }
+    }
+    ExtraNote(
+        if (imageBytes < 0) "Checking the cache size..."
+        else "Saved pictures and bios are using %.1f MB right now.".format(imageBytes / 1_000_000.0)
+    )
+    OutlinedButton(
+        onClick = {
+            scope.launch {
+                withContext(Dispatchers.IO) { ImageDiskCache.clear(context) }
+                ArtistInfo.clearMemory()
+                refresh++
+                Toast.makeText(context, "Picture cache cleared", Toast.LENGTH_SHORT).show()
+            }
+        },
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        Text("Clear the picture cache")
+    }
+
+    ExtraSwitchRow(
+        title = "Remember lyrics for faster opening",
+        subtitle = "Lyrics you download are always saved for good. This only keeps recently opened lyrics ready, " +
+            "including songs that have none, so they open instantly.",
+        checked = ExtraSettings.lyricsCacheEnabled,
+        onChange = {
+            ExtraSettings.lyricsCacheEnabled = it
+            ExtraSettings.save(context)
+            if (!it) LyricsCache.clear()
+        },
+    )
+    ExtraSwitchRow(
+        title = "Skip songs with no lyrics found recently",
+        subtitle = "When downloading lyrics for all songs, songs that weren't found in the last 30 days are " +
+            "skipped, so repeat runs are faster and gentler on the free lyrics service.",
+        checked = ExtraSettings.lyricsMissCacheEnabled,
+        onChange = {
+            ExtraSettings.lyricsMissCacheEnabled = it
+            ExtraSettings.save(context)
+        },
+    )
+    ExtraNote("Songs on the not-found list: $missCount")
+    OutlinedButton(
+        onClick = {
+            scope.launch {
+                withContext(Dispatchers.IO) { LyricsMisses.clear(context) }
+                refresh++
+                Toast.makeText(context, "Not-found list cleared", Toast.LENGTH_SHORT).show()
+            }
+        },
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        Text("Forget the not-found list")
+    }
 }
 
 // ---------------------------------------------------------------------------

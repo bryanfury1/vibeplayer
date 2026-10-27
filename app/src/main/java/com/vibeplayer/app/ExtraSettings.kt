@@ -2,6 +2,7 @@ package com.vibeplayer.app
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.audiofx.Equalizer
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.getValue
@@ -9,10 +10,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * The newer settings (appearance, Home sections, library filters, playback rules).
@@ -44,6 +47,24 @@ object ExtraSettings {
     /** Goes up whenever a library filter changes, which makes the app scan again. */
     var libraryRevision by mutableIntStateOf(0)
 
+    // ---- Artists ----
+    /** Fetch artist pictures and short bios from the internet. */
+    var artistInfoEnabled by mutableStateOf(true)
+
+    // ---- Equalizer ----
+    var eqEnabled by mutableStateOf(false)
+    /** The level of each frequency band, in hundredths of a decibel (300 = +3 dB). */
+    var eqLevels by mutableStateOf<List<Int>>(emptyList())
+    /** The name of the preset in use, or "Custom" once a slider has been moved. */
+    var eqPreset by mutableStateOf("Flat")
+
+    // ---- Caching ----
+    var imageCacheEnabled by mutableStateOf(true)
+    /** The most disk space the saved album art may use, in megabytes. */
+    var imageCacheMb by mutableIntStateOf(100)
+    var lyricsCacheEnabled by mutableStateOf(true)
+    var lyricsMissCacheEnabled by mutableStateOf(true)
+
     // ---- Playback ----
     var pauseOnZeroVolume by mutableStateOf(false)
     var pauseOnDisconnect by mutableStateOf(true)
@@ -63,6 +84,14 @@ object ExtraSettings {
         minSongSeconds = prefs.getInt("min_song_seconds", 0)
         pauseOnZeroVolume = prefs.getBoolean("pause_on_zero_volume", false)
         pauseOnDisconnect = prefs.getBoolean("pause_on_disconnect", true)
+        artistInfoEnabled = prefs.getBoolean("artist_info_enabled", true)
+        eqEnabled = prefs.getBoolean("eq_enabled", false)
+        eqLevels = prefs.getString("eq_levels", "").orEmpty().split(',').mapNotNull { it.trim().toIntOrNull() }
+        eqPreset = prefs.getString("eq_preset", "Flat") ?: "Flat"
+        imageCacheEnabled = prefs.getBoolean("image_cache_enabled", true)
+        imageCacheMb = prefs.getInt("image_cache_mb", 100)
+        lyricsCacheEnabled = prefs.getBoolean("lyrics_cache_enabled", true)
+        lyricsMissCacheEnabled = prefs.getBoolean("lyrics_miss_cache_enabled", true)
     }
 
     fun save(context: Context) {
@@ -81,6 +110,14 @@ object ExtraSettings {
             .putInt("min_song_seconds", minSongSeconds)
             .putBoolean("pause_on_zero_volume", pauseOnZeroVolume)
             .putBoolean("pause_on_disconnect", pauseOnDisconnect)
+            .putBoolean("artist_info_enabled", artistInfoEnabled)
+            .putBoolean("eq_enabled", eqEnabled)
+            .putString("eq_levels", eqLevels.joinToString(","))
+            .putString("eq_preset", eqPreset)
+            .putBoolean("image_cache_enabled", imageCacheEnabled)
+            .putInt("image_cache_mb", imageCacheMb)
+            .putBoolean("lyrics_cache_enabled", lyricsCacheEnabled)
+            .putBoolean("lyrics_miss_cache_enabled", lyricsMissCacheEnabled)
             .apply()
     }
 }
@@ -136,6 +173,8 @@ private fun folderPathPrefix(docId: String): String {
 
 /** Removes songs that are too short or that live in a blacklisted folder. */
 fun applyLibraryFilters(tracks: List<Track>): List<Track> {
+    // The library is reloaded after tags are edited, so lyrics remembered earlier may be out of date.
+    LyricsCache.clear()
     val minMs = ExtraSettings.minSongSeconds * 1000L
     val blocked = BlacklistStore.folders.map { folderPathPrefix(it) }
     if (minMs <= 0L && blocked.isEmpty()) return tracks
@@ -149,12 +188,29 @@ fun applyLibraryFilters(tracks: List<Track>): List<Track> {
 // Playback rules and the sleep timer. These talk to the music player inside PlaybackService.
 // ---------------------------------------------------------------------------
 
+/** What the phone's equalizer can do: how many frequency bands, and how far each can be raised or lowered. */
+class EqInfo(
+    val bandCount: Int,
+    /** The lowest level a band can be set to, in hundredths of a decibel. */
+    val minLevel: Int,
+    /** The highest level a band can be set to, in hundredths of a decibel. */
+    val maxLevel: Int,
+    /** The middle frequency of each band, in hertz. */
+    val centerHz: List<Int>,
+)
+
 /** A small bridge to the player that lives in PlaybackService. */
 object ServiceHooks {
     private var player: ExoPlayer? = null
     private var audioManager: AudioManager? = null
+    private var listener: Player.Listener? = null
+    private var equalizer: Equalizer? = null
     private val handler = Handler(Looper.getMainLooper())
     private var lastVolume = -1
+
+    /** Set once the music service is running and the phone's equalizer is ready. Null before that. */
+    var eqInfo by mutableStateOf<EqInfo?>(null)
+        private set
 
     /**
      * Looks at the phone's own music volume (the one the volume buttons change) twice a second.
@@ -185,13 +241,28 @@ object ServiceHooks {
         lastVolume = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
         newPlayer.setHandleAudioBecomingNoisy(ExtraSettings.pauseOnDisconnect)
         handler.postDelayed(volumeWatcher, 500L)
+
+        // The equalizer is attached to the player's audio stream. If that stream changes, set it up again.
+        val newListener = object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                setupEqualizer(audioSessionId)
+            }
+        }
+        newPlayer.addListener(newListener)
+        listener = newListener
+        setupEqualizer(newPlayer.audioSessionId)
     }
 
     /** Called by PlaybackService when it stops. */
     fun detach() {
         SleepTimer.cancel()
         handler.removeCallbacks(volumeWatcher)
+        val old = player
+        val oldListener = listener
+        if (old != null && oldListener != null) old.removeListener(oldListener)
+        releaseEqualizer()
         player = null
+        listener = null
         audioManager = null
     }
 
@@ -202,6 +273,85 @@ object ServiceHooks {
 
     fun pause() {
         player?.pause()
+    }
+
+    // ---- Equalizer ----
+
+    private fun setupEqualizer(sessionId: Int) {
+        releaseEqualizer()
+        if (sessionId == 0) return
+        try {
+            val newEqualizer = Equalizer(0, sessionId)
+            val bands = newEqualizer.getNumberOfBands().toInt()
+            val range = newEqualizer.getBandLevelRange()
+            val centers = ArrayList<Int>()
+            for (band in 0 until bands) {
+                // Android reports milli-hertz, so divide by 1000 to get hertz.
+                centers.add(newEqualizer.getCenterFreq(band.toShort()) / 1000)
+            }
+            equalizer = newEqualizer
+            eqInfo = EqInfo(bands, range[0].toInt(), range[1].toInt(), centers)
+            applyEqualizer()
+        } catch (e: Exception) {
+            // This phone doesn't offer an equalizer for this audio stream.
+            equalizer = null
+            eqInfo = null
+        }
+    }
+
+    private fun releaseEqualizer() {
+        try {
+            equalizer?.release()
+        } catch (e: Exception) {
+            // Nothing to do.
+        }
+        equalizer = null
+        eqInfo = null
+    }
+
+    /** Sends the saved equalizer settings (on or off, and each band's level) to the phone. */
+    fun applyEqualizer() {
+        val current = equalizer ?: return
+        val info = eqInfo ?: return
+        try {
+            val levels = ExtraSettings.eqLevels
+            for (band in 0 until info.bandCount) {
+                val level = levels.getOrElse(band) { 0 }.coerceIn(info.minLevel, info.maxLevel)
+                current.setBandLevel(band.toShort(), level.toShort())
+            }
+            current.setEnabled(ExtraSettings.eqEnabled)
+        } catch (e: Exception) {
+            // The setting couldn't be applied right now.
+        }
+    }
+}
+
+/** Ready-made equalizer settings. */
+object EqPresets {
+    val names = listOf("Flat", "Bass boost", "Treble boost", "Rock", "Pop", "Vocal", "Classical")
+
+    // Gains in decibels for five spread-out areas of the sound, from bass (left) to treble (right).
+    private val gains = mapOf(
+        "Flat" to listOf(0f, 0f, 0f, 0f, 0f),
+        "Bass boost" to listOf(6f, 4f, 0f, 0f, 0f),
+        "Treble boost" to listOf(0f, 0f, 0f, 4f, 6f),
+        "Rock" to listOf(4f, 2f, -2f, 2f, 4f),
+        "Pop" to listOf(-1f, 2f, 4f, 2f, -1f),
+        "Vocal" to listOf(-2f, 0f, 4f, 3f, 0f),
+        "Classical" to listOf(3f, 2f, -1f, 2f, 3f),
+    )
+
+    /** The level for each of this phone's bands, spreading the preset evenly across them. */
+    fun levels(name: String, info: EqInfo): List<Int> {
+        val points = gains[name] ?: return List(info.bandCount) { 0 }
+        return List(info.bandCount) { band ->
+            val position = if (info.bandCount == 1) 0f else band * (points.size - 1f) / (info.bandCount - 1f)
+            val low = position.toInt().coerceIn(0, points.size - 1)
+            val high = (low + 1).coerceAtMost(points.size - 1)
+            val fraction = position - low
+            val decibels = points[low] + (points[high] - points[low]) * fraction
+            (decibels * 100).roundToInt().coerceIn(info.minLevel, info.maxLevel)
+        }
     }
 }
 

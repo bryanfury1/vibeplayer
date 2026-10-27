@@ -24,7 +24,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +42,8 @@ data class TrackGroup(
     val subtitle: String,
     val tracks: List<Track>,
     val key: String = "",
+    val isArtist: Boolean = false,
+    val isAlbum: Boolean = false,
 )
 
 private fun countText(count: Int, word: String): String =
@@ -112,6 +119,7 @@ fun artistGroups(library: List<Track>): List<TrackGroup> {
             TrackGroup(
                 title = displayName.getValue(key),
                 key = key,
+                isArtist = true,
                 subtitle = "${countText(tracks.size, "song")} • ${countText(albumCount, "album")}",
                 tracks = tracks.sortedWith(
                     compareBy<Track>({ it.album.lowercase() }, { it.trackNumber }, { it.title.lowercase() })
@@ -133,6 +141,7 @@ fun albumGroups(library: List<Track>): List<TrackGroup> =
             TrackGroup(
                 title = tracks.first().album,
                 key = tracks.first().albumId.toString(),
+                isAlbum = true,
                 subtitle = "$artistText • ${countText(tracks.size, "song")}",
                 tracks = tracks.sortedWith(
                     compareBy<Track>({ it.trackNumber }, { it.title.lowercase() })
@@ -192,12 +201,7 @@ fun GroupListScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Artwork(
-                        group.tracks.first(),
-                        sizePx = 192,
-                        modifier = Modifier.size(56.dp),
-                        corner = if (roundArt) 28.dp else 8.dp,
-                    )
+                    GroupArtwork(group, sizePx = 192, modifier = Modifier.size(56.dp), corner = if (roundArt) 28.dp else 8.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -230,6 +234,7 @@ fun GroupScreen(
     padding: PaddingValues,
     onBack: () -> Unit,
 ) {
+    var showAddAll by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = padding) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -243,12 +248,7 @@ fun GroupScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Artwork(
-                    group.tracks.first(),
-                    sizePx = 384,
-                    modifier = Modifier.size(96.dp),
-                    corner = 12.dp,
-                )
+                GroupArtwork(group, sizePx = 384, modifier = Modifier.size(96.dp), corner = if (group.isArtist) 48.dp else 12.dp)
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -284,16 +284,19 @@ fun GroupScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Shuffle")
                 }
+                IconButton(onClick = { showAddAll = true }) {
+                    Icon(Icons.Rounded.PlaylistAdd, contentDescription = "Add all songs to a playlist")
+                }
+                if (showAddAll) {
+                    AddToPlaylistDialog(group.tracks, onDismiss = { showAddAll = false })
+                }
             }
         }
+        if (group.isArtist) {
+            item { ArtistBio(group.title) }
+        }
         itemsIndexed(group.tracks, key = { _, track -> track.uri.toString() }) { index, track ->
-            TrackRow(
-                track,
-                isCurrent = track.uri == player.currentTrack?.uri,
-                onClick = { player.playList(group.tracks, index) },
-                onPlayNext = { player.playNext(track) },
-                onAddToQueue = { player.addToQueue(track) },
-            )
+            GroupTrackRow(group, player, index, track)
         }
     }
 }

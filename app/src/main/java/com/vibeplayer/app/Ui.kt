@@ -41,6 +41,9 @@ import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -540,6 +543,13 @@ fun TrackRow(
                     },
                 )
                 DropdownMenuItem(
+                    text = { Text(if (PlaylistStore.isFavorite(track)) "Remove from favorites" else "Add to favorites") },
+                    onClick = {
+                        menuOpen = false
+                        PlaylistStore.toggleFavorite(track)
+                    },
+                )
+                DropdownMenuItem(
                     text = { Text("Add to playlist") },
                     onClick = {
                         menuOpen = false
@@ -842,6 +852,17 @@ private fun NowPlayingScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            IconButton(onClick = { if (track != null) PlaylistStore.toggleFavorite(track) }) {
+                val favorite = track != null && PlaylistStore.isFavorite(track)
+                Icon(
+                    if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = "Favorite",
+                    tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = { if (track != null) PlaylistPicker.track = track }) {
+                Icon(Icons.Rounded.PlaylistAdd, contentDescription = "Add to playlist")
             }
             IconButton(onClick = { if (track != null) TagEditorState.track = track }) {
                 Icon(Icons.Rounded.Edit, contentDescription = "Edit info")

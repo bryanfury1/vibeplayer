@@ -37,6 +37,10 @@ data class Playlist(
 /** Turns a library song into a playlist entry. */
 fun Track.toEntry(): PlaylistEntry = PlaylistEntry(key, title, artist, durationMs)
 
+/** The built-in "Favorite songs" playlist always has this fixed id. */
+const val FAVORITES_ID = "favorites"
+const val FAVORITES_NAME = "Favorite songs"
+
 /**
  * All your playlists. They are saved in one small file (playlists.json) inside the app's
  * private storage. The screens redraw automatically whenever the list changes.
@@ -58,6 +62,7 @@ object PlaylistStore {
         } catch (e: Exception) {
             emptyList()
         }
+        ensureFavorites()
     }
 
     private fun parse(text: String): List<Playlist> {
@@ -136,13 +141,44 @@ object PlaylistStore {
     }
 
     fun rename(id: String, name: String) {
+        if (id == FAVORITES_ID) return
         val clean = name.trim()
         if (clean.isEmpty()) return
         update(playlists.map { if (it.id == id) it.copy(name = clean) else it })
     }
 
     fun delete(id: String) {
+        if (id == FAVORITES_ID) return
         update(playlists.filter { it.id != id })
+    }
+
+    /** Makes sure the built-in Favorite songs playlist exists. It can't be renamed or deleted. */
+    fun ensureFavorites() {
+        if (playlists.none { it.id == FAVORITES_ID }) {
+            update(listOf(Playlist(FAVORITES_ID, FAVORITES_NAME, emptyList())) + playlists)
+        }
+    }
+
+    fun isFavorite(track: Track): Boolean =
+        playlists.firstOrNull { it.id == FAVORITES_ID }?.entries?.any { it.key == track.key } == true
+
+    /** Adds the song to Favorite songs, or removes it if it is already there. Returns true if it is now a favorite. */
+    fun toggleFavorite(track: Track): Boolean {
+        ensureFavorites()
+        if (isFavorite(track)) {
+            update(
+                playlists.map { playlist ->
+                    if (playlist.id == FAVORITES_ID) {
+                        playlist.copy(entries = playlist.entries.filter { it.key != track.key })
+                    } else {
+                        playlist
+                    }
+                }
+            )
+            return false
+        }
+        addTracks(FAVORITES_ID, listOf(track))
+        return true
     }
 
     /** Adds songs to the end of a playlist, skipping ones already in it. Returns how many were added. */
