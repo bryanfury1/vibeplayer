@@ -45,10 +45,19 @@ object ArtistInfo {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    // Words that show a Wikipedia page is about a musician or band (checked in the description and first sentence).
     private val musicWords = Regex(
         "\\b(singer|rapper|musician|band|songwriter|vocalist|guitarist|drummer|pianist|composer|" +
-            "producer|DJ|duo|group|trio|quartet|orchestra|recording artist|music)\\b",
+            "record producer|DJ|duo|trio|quartet|orchestra|recording artist|girl group|boy group|" +
+            "vocal group|musical group|rock group|hip hop|hip-hop)\\b",
         RegexOption.IGNORE_CASE,
+    )
+
+    // Wikipedia often adds a word in brackets when several things share a name, like "Drake (musician)".
+    private val titleSuffixes = listOf(
+        " (musician)", " (singer)", " (rapper)", " (band)", " (group)", " (duo)", " (DJ)",
+        " (record producer)", " (singer-songwriter)", " (American band)", " (British band)",
+        " (English band)", " (South Korean band)",
     )
 
     private fun folder(context: Context): File {
@@ -212,8 +221,44 @@ object ArtistInfo {
         }
     }
 
+    private class SummaryResult(val exists: Boolean, val bio: ArtistBioInfo?)
+
+    /**
+     * Asks Wikipedia for the short summary of the page with this title (Wikipedia follows its own
+     * redirects, so "A$AP Rocky" finds "ASAP Rocky"). The bio is only returned if the page is about music.
+     */
+    private fun summaryFor(title: String): SummaryResult {
+        val address = "https://en.wikipedia.org/api/rest_v1/page/summary/" +
+            enc(title.replace(' ', '_')).replace("+", "%20")
+        val json = httpGetText(address) ?: return SummaryResult(false, null)
+        val summary = JSONObject(json)
+        if (summary.optString("type") != "standard") return SummaryResult(true, null)
+        val extract = summary.optString("extract").trim()
+        if (extract.isEmpty()) return SummaryResult(true, null)
+        val about = summary.optString("description") + " " + extract.substringBefore(". ")
+        if (!musicWords.containsMatchIn(about)) return SummaryResult(true, null)
+        val pageUrl = summary.optJSONObject("content_urls")
+            ?.optJSONObject("desktop")?.optString("page").orEmpty()
+        return SummaryResult(true, ArtistBioInfo(extract, pageUrl))
+    }
+
     private fun fetchBio(name: String): BioResult {
         try {
+            // Step 1: the page with exactly this name.
+            val first = summaryFor(name)
+            if (first.bio != null) return BioResult(first.bio, true)
+
+            // Step 2: if that page exists but isn't about a musician (for example a list of
+            // meanings of "Drake"), try the usual bracketed versions.
+            if (first.exists) {
+                for (suffix in titleSuffixes) {
+                    val attempt = summaryFor(name + suffix)
+                    if (attempt.bio != null) return BioResult(attempt.bio, true)
+                }
+            }
+
+            // Step 3: search Wikipedia. Only a page whose title matches the name exactly is accepted,
+            // so a different artist with a similar name is never shown by mistake.
             val query = enc("\"$name\" (musician OR singer OR band OR rapper OR group)")
             val searchJson = httpGetText(
                 "https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=5&format=json&srsearch=$query"
@@ -225,24 +270,11 @@ object ArtistInfo {
             var checked = 0
             for (i in 0 until results.length()) {
                 val title = results.optJSONObject(i)?.optString("title").orEmpty()
-                // "Drake (musician)" counts as "Drake". The name must match exactly, so a different
-                // artist with a similar name is never shown by mistake.
                 if (normalize(title.substringBefore(" (")) != wanted) continue
                 checked++
                 if (checked > 3) break
-
-                val address = "https://en.wikipedia.org/api/rest_v1/page/summary/" +
-                    enc(title.replace(' ', '_')).replace("+", "%20")
-                val summaryJson = httpGetText(address) ?: continue
-                val summary = JSONObject(summaryJson)
-                if (summary.optString("type") != "standard") continue
-                val extract = summary.optString("extract").trim()
-                val about = summary.optString("description") + " " + extract
-                if (extract.isEmpty() || !musicWords.containsMatchIn(about)) continue
-
-                val pageUrl = summary.optJSONObject("content_urls")
-                    ?.optJSONObject("desktop")?.optString("page").orEmpty()
-                return BioResult(ArtistBioInfo(extract, pageUrl), true)
+                val attempt = summaryFor(title)
+                if (attempt.bio != null) return BioResult(attempt.bio, true)
             }
             return BioResult(null, true)
         } catch (e: Exception) {
