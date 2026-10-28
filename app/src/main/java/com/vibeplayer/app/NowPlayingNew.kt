@@ -282,9 +282,6 @@ private fun NowPlayingContent(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Medium,
                 )
-                IconButton(onClick = onOpenQueue) {
-                    Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue")
-                }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(Icons.Rounded.MoreVert, contentDescription = "More options")
@@ -551,7 +548,7 @@ private fun NowPlayingContent(
                     }
                 }
 
-                // ---- Bottom row: lyrics on the left, favorite on the right ----
+                // ---- Bottom row: lyrics on the left, queue in the middle, favorite on the right ----
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -573,6 +570,14 @@ private fun NowPlayingContent(
                             contentDescription = "Lyrics",
                             tint = if (showLyrics) MaterialTheme.colorScheme.onPrimaryContainer
                             else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onOpenQueue, modifier = Modifier.size(56.dp)) {
+                        Icon(
+                            Icons.Rounded.QueueMusic,
+                            contentDescription = "Open queue",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Spacer(Modifier.weight(1f))
