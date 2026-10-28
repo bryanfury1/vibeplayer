@@ -27,6 +27,7 @@ data class Track(
     val trackNumber: Int,
     val dateAdded: Long,
     val path: String,
+    val year: Int = 0,
 )
 
 /**
@@ -101,6 +102,7 @@ object LibraryRepository {
                 MediaStore.Audio.Media.TRACK,
                 MediaStore.Audio.Media.DATE_ADDED,
                 MediaStore.Audio.Media.DATA,
+                MediaStore.Audio.Media.YEAR,
             )
             if (Build.VERSION.SDK_INT >= 29) projection.add(MediaStore.MediaColumns.VOLUME_NAME)
             if (Build.VERSION.SDK_INT >= 30) projection.add(MediaStore.Audio.Media.GENRE)
@@ -150,6 +152,7 @@ object LibraryRepository {
                 val trackCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
                 val addedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val yearCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
                 val genreCol =
                     if (Build.VERSION.SDK_INT >= 30)
                         cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.GENRE)
@@ -181,6 +184,7 @@ object LibraryRepository {
                             trackNumber = cursor.getInt(trackCol),
                             dateAdded = cursor.getLong(addedCol),
                             path = cursor.getString(dataCol) ?: "",
+                            year = cursor.getInt(yearCol),
                         )
                     )
                 }

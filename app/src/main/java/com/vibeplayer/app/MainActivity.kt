@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
         AppSettings.load(applicationContext)
         ExtraSettings.load(applicationContext)
         BlacklistStore.load(applicationContext)
+        FavoriteGroups.load(applicationContext)
         PlaylistStore.load(applicationContext)
         player = PlayerController(applicationContext)
         player.connect()

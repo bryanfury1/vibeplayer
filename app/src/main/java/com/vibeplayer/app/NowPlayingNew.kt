@@ -103,7 +103,7 @@ private fun formatClock(ms: Long): String {
 // ---------------------------------------------------------------------------
 
 /** The main color (as a position on the color wheel, 0 to 360) of a picture, or null for gray pictures. */
-private fun dominantHue(bitmap: Bitmap?): Float? {
+fun dominantHue(bitmap: Bitmap?): Float? {
     if (bitmap == null) return null
     try {
         val small = Bitmap.createScaledBitmap(bitmap, 24, 24, true)
