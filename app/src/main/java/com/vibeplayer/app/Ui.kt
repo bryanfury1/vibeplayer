@@ -316,11 +316,10 @@ fun VibeApp(player: PlayerController) {
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it }),
         ) {
-            NowPlayingScreen(
+            NowPlayingScreenV2(
                 player,
                 onClose = { showNowPlaying = false },
                 onOpenQueue = { showQueue = true },
-                onOpenLyricsFullscreen = { showLyricsFull = true },
                 onOpenAmbient = { showAmbient = true },
             )
         }

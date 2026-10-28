@@ -191,6 +191,15 @@ fun AppearanceSettingsSection() {
             ExtraSettings.save(context)
         },
     )
+    ExtraSwitchRow(
+        title = "Now Playing colors follow the album art",
+        subtitle = "The buttons and bars on the Now Playing screen take their color from the cover picture.",
+        checked = ExtraSettings.nowPlayingArtColors,
+        onChange = {
+            ExtraSettings.nowPlayingArtColors = it
+            ExtraSettings.save(context)
+        },
+    )
     HorizontalDivider(Modifier.padding(vertical = 8.dp))
 }
 

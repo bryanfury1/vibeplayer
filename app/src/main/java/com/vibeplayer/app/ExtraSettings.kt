@@ -32,6 +32,8 @@ object ExtraSettings {
     /** Which color theme to use when wallpaper colors are off (a position in colorThemeNames). */
     var colorTheme by mutableIntStateOf(0)
     var amoledBlack by mutableStateOf(false)
+    /** Now Playing takes its accent colors from the album art. */
+    var nowPlayingArtColors by mutableStateOf(true)
 
     // ---- Home screen sections ----
     var homeRecentSongs by mutableStateOf(true)
@@ -75,6 +77,7 @@ object ExtraSettings {
         useDynamicColor = prefs.getBoolean("use_dynamic_color", true)
         colorTheme = prefs.getInt("color_theme", 0)
         amoledBlack = prefs.getBoolean("amoled_black", false)
+        nowPlayingArtColors = prefs.getBoolean("now_playing_art_colors", true)
         homeRecentSongs = prefs.getBoolean("home_recent_songs", true)
         homeRecentArtists = prefs.getBoolean("home_recent_artists", true)
         homeRecentAlbums = prefs.getBoolean("home_recent_albums", true)
@@ -101,6 +104,7 @@ object ExtraSettings {
             .putBoolean("use_dynamic_color", useDynamicColor)
             .putInt("color_theme", colorTheme)
             .putBoolean("amoled_black", amoledBlack)
+            .putBoolean("now_playing_art_colors", nowPlayingArtColors)
             .putBoolean("home_recent_songs", homeRecentSongs)
             .putBoolean("home_recent_artists", homeRecentArtists)
             .putBoolean("home_recent_albums", homeRecentAlbums)

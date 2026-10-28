@@ -284,7 +284,7 @@ private fun durationText(seconds: Double): String {
 }
 
 @Composable
-private fun FindLyricsDialog(track: Track, onDismiss: () -> Unit, onSaved: () -> Unit) {
+fun FindLyricsDialog(track: Track, onDismiss: () -> Unit, onSaved: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val mainArtist = remember(track.uri) { splitArtists(track.artist).first() }

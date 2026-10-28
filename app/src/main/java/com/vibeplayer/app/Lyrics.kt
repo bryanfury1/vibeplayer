@@ -14,10 +14,13 @@ import java.net.URL
 import java.net.URLEncoder
 
 /** One line of lyrics. timeMs is when it should be highlighted, or -1 if the lyrics have no timing. */
-data class LyricLine(val timeMs: Long, val text: String)
+data class LyricLine(val timeMs: Long, val text: String, val words: List<LyricWord> = emptyList())
 
 /** All the lyrics of a song. synced = true means every line has a time stamp. */
-data class Lyrics(val lines: List<LyricLine>, val synced: Boolean)
+data class Lyrics(val lines: List<LyricLine>, val synced: Boolean) {
+    /** True when at least one line has word-by-word timing. */
+    val wordSynced: Boolean get() = lines.any { it.words.isNotEmpty() }
+}
 
 // ---------------------------------------------------------------------------
 // Reading .lrc text
@@ -33,6 +36,8 @@ object LrcParser {
     private val offsetLine = Regex("""^\[offset:\s*([+-]?\d+)\s*]$""", RegexOption.IGNORE_CASE)
 
     fun parse(text: String): Lyrics? {
+        // Apple-style TTML lyrics (an XML text) are read by their own reader.
+        if (TtmlLyrics.looksLikeTtml(text)) return TtmlLyrics.parse(text)
         var offsetMs = 0L
         val timed = ArrayList<LyricLine>()
         val plain = ArrayList<LyricLine>()
@@ -49,13 +54,14 @@ object LrcParser {
 
             val leading = leadingTags.find(line)
             if (leading != null) {
-                val content = wordTag.replace(line.substring(leading.range.last + 1), "").trim()
+                val rawContent = line.substring(leading.range.last + 1)
+                val content = wordTag.replace(rawContent, "").trim()
                 for (tag in oneTag.findAll(leading.value)) {
                     val minutes = tag.groupValues[1].toLong()
                     val seconds = tag.groupValues[2].toLong()
                     val fraction = tag.groupValues[3].padEnd(3, '0').take(3).toLong()
                     val time = minutes * 60_000L + seconds * 1000L + fraction
-                    timed.add(LyricLine(time, content))
+                    timed.add(LyricLine(time, content, WordLyrics.parseWords(rawContent, time)))
                 }
             } else if (!infoLine.matches(line)) {
                 plain.add(LyricLine(-1L, line))
@@ -65,7 +71,17 @@ object LrcParser {
         return when {
             timed.isNotEmpty() -> Lyrics(
                 timed
-                    .map { it.copy(timeMs = (it.timeMs - offsetMs).coerceAtLeast(0L)) }
+                    .map { line ->
+                        line.copy(
+                            timeMs = (line.timeMs - offsetMs).coerceAtLeast(0L),
+                            words = line.words.map { word ->
+                                word.copy(
+                                    startMs = (word.startMs - offsetMs).coerceAtLeast(0L),
+                                    endMs = (word.endMs - offsetMs).coerceAtLeast(0L),
+                                )
+                            },
+                        )
+                    }
                     .sortedBy { it.timeMs },
                 synced = true,
             )
