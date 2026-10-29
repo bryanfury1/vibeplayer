@@ -1,6 +1,13 @@
 package com.vibeplayer.app
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.core.content.ContextCompat
 import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -356,6 +363,11 @@ fun MoreSettingsSections() {
 
     HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+    // ---- Offline mode ----
+    OfflineSettings()
+
+    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
     // ---- Caching ----
     CachingSettings()
 
@@ -484,6 +496,119 @@ private fun ArtistSettings() {
 }
 
 // ---------------------------------------------------------------------------
+// Offline mode: download everything now
+// ---------------------------------------------------------------------------
+private fun startPrefetch(context: Context) {
+    if (LibraryIndex.source.isEmpty()) {
+        Toast.makeText(
+            context,
+            "Your music hasn't loaded yet. Wait for the scan to finish and try again.",
+            Toast.LENGTH_LONG,
+        ).show()
+        return
+    }
+    ContextCompat.startForegroundService(context, Intent(context, PrefetchService::class.java))
+}
+
+@Composable
+private fun OfflineSettings() {
+    val context = LocalContext.current
+    // Android 13 and newer must allow notifications before the progress bar can show.
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { startPrefetch(context) }
+
+    ExtraHeader("Offline mode")
+    ExtraNote(
+        "Saves album pictures, artist photos and bios on your phone in one go, so they are ready without " +
+            "internet and pages open faster. Progress shows in your notifications, and you can keep using the app."
+    )
+    ExtraSwitchRow(
+        title = "Album pictures",
+        subtitle = "Small and medium copies of every album cover.",
+        checked = ExtraSettings.prefetchArt,
+        onChange = {
+            ExtraSettings.prefetchArt = it
+            ExtraSettings.save(context)
+        },
+    )
+    ExtraSwitchRow(
+        title = "Artist photos",
+        subtitle = "Three sizes for every artist. Needs internet.",
+        checked = ExtraSettings.prefetchPhotos,
+        onChange = {
+            ExtraSettings.prefetchPhotos = it
+            ExtraSettings.save(context)
+        },
+    )
+    ExtraSwitchRow(
+        title = "Artist bios",
+        subtitle = "Short bios from Wikipedia. Needs internet.",
+        checked = ExtraSettings.prefetchBios,
+        onChange = {
+            ExtraSettings.prefetchBios = it
+            ExtraSettings.save(context)
+        },
+    )
+    ExtraSwitchRow(
+        title = "Album descriptions",
+        subtitle = "The slowest part: one or more look-ups for every album. Many albums have none.",
+        checked = ExtraSettings.prefetchAlbumBios,
+        onChange = {
+            ExtraSettings.prefetchAlbumBios = it
+            ExtraSettings.save(context)
+        },
+    )
+    ExtraSwitchRow(
+        title = "Only on Wi-Fi",
+        subtitle = "Photos and bios are not downloaded over mobile data.",
+        checked = ExtraSettings.prefetchWifiOnly,
+        onChange = {
+            ExtraSettings.prefetchWifiOnly = it
+            ExtraSettings.save(context)
+        },
+    )
+
+    if (PrefetchState.running) {
+        val fraction = if (PrefetchState.total > 0) PrefetchState.done.toFloat() / PrefetchState.total else 0f
+        ExtraNote("${PrefetchState.phase}: ${PrefetchState.done} of ${PrefetchState.total}")
+        LinearProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        OutlinedButton(
+            onClick = {
+                context.startService(
+                    Intent(context, PrefetchService::class.java).setAction(PrefetchService.ACTION_CANCEL)
+                )
+            },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text("Cancel the download")
+        }
+    } else {
+        Button(
+            onClick = {
+                val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+                if (needsPermission) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    startPrefetch(context)
+                }
+            },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text("Download everything now")
+        }
+        if (PrefetchState.message.isNotEmpty()) ExtraNote(PrefetchState.message)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Caching of album art and lyrics
 // ---------------------------------------------------------------------------
 @Composable
@@ -511,10 +636,10 @@ private fun CachingSettings() {
             ExtraSettings.save(context)
         },
     )
-    val limits = listOf(50, 100, 250, 500)
+    val limits = listOf(100, 250, 500, 1000, 2000)
     OptionChips(
         "Picture cache limit",
-        limits.map { "$it MB" },
+        limits.map { if (it >= 1000) "${it / 1000} GB" else "$it MB" },
         limits.indexOf(ExtraSettings.imageCacheMb).coerceAtLeast(0),
     ) { index ->
         ExtraSettings.imageCacheMb = limits[index]

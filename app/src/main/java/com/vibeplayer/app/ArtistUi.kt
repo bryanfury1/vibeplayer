@@ -51,7 +51,10 @@ fun GroupArtwork(group: TrackGroup, sizePx: Int, modifier: Modifier, corner: Dp 
 fun ArtistArtwork(name: String, fallback: Track?, sizePx: Int, modifier: Modifier, corner: Dp = 8.dp) {
     val context = LocalContext.current
     val enabled = ExtraSettings.artistInfoEnabled
-    val picture by produceState<Bitmap?>(initialValue = null, name, sizePx, enabled) {
+    val picture by produceState<Bitmap?>(
+        initialValue = if (enabled) ArtistInfo.peekPicture(name, sizePx) else null,
+        name, sizePx, enabled,
+    ) {
         value = if (enabled) ArtistInfo.loadPicture(context, name, sizePx) else null
     }
     val bitmap = picture

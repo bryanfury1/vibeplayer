@@ -32,7 +32,7 @@ class ArtistBioInfo(val text: String, val pageUrl: String)
 object ArtistInfo {
     private const val USER_AGENT = "VibePlayer/1.0 (personal Android music player)"
     private const val PICTURE_RECHECK_MS = 14L * 24 * 60 * 60 * 1000
-    private const val BIO_KEEP_MS = 60L * 24 * 60 * 60 * 1000
+    private const val BIO_KEEP_MS = 180L * 24 * 60 * 60 * 1000
     private const val BIO_RECHECK_MS = 14L * 24 * 60 * 60 * 1000
     private const val MAX_IMAGE_BYTES = 2_000_000
 
@@ -89,14 +89,40 @@ object ArtistInfo {
     // Pictures
     // -----------------------------------------------------------------------
 
+    /** 0 = small (lists), 1 = big, 2 = extra large (the full-width picture on an artist's page). */
+    private fun qualityFor(sizePx: Int): Int = when {
+        sizePx > 512 -> 2
+        sizePx > 256 -> 1
+        else -> 0
+    }
+
+    /** The picture if it is already in memory, otherwise null. Never waits. */
+    fun peekPicture(name: String, sizePx: Int): Bitmap? =
+        pictureMemory.get(fileKey(name) + "_q" + qualityFor(sizePx))
+
+    /** Makes sure the picture is saved on the phone, without keeping it in memory. */
+    suspend fun prefetchPicture(context: Context, name: String, sizePx: Int) {
+        val app = context.applicationContext
+        val quality = qualityFor(sizePx)
+        val id = fileKey(name)
+        withContext(Dispatchers.IO) {
+            val dir = folder(app)
+            val file = File(dir, "artist_${id}_q$quality.jpg")
+            val none = File(dir, "artist_$id.none")
+            if (file.exists()) return@withContext
+            if (none.exists()) {
+                if (System.currentTimeMillis() - none.lastModified() < PICTURE_RECHECK_MS) return@withContext
+                none.delete()
+            }
+            limiter.withPermit {
+                if (!file.exists()) downloadPicture(app, file, none, name, quality)
+            }
+        }
+    }
+
     /** The artist's picture, or null if there is none (or it can't be fetched right now). */
     suspend fun loadPicture(context: Context, name: String, sizePx: Int): Bitmap? {
-        // 0 = small (lists), 1 = big, 2 = extra large (the full-width picture on an artist's page)
-        val quality = when {
-            sizePx > 512 -> 2
-            sizePx > 256 -> 1
-            else -> 0
-        }
+        val quality = qualityFor(sizePx)
         val id = fileKey(name)
         val memoryKey = id + "_q" + quality
         val inMemory = pictureMemory.get(memoryKey)

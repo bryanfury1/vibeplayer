@@ -24,10 +24,10 @@ object ImageDiskCache {
         return dir
     }
 
-    /** A file name made from the song and picture size, so each picture has its own copy. */
+    /** A file name made from the album (or song) and the picture size, so songs of an album share one copy. */
     private fun nameFor(track: Track, sizePx: Int): String {
         val digest = MessageDigest.getInstance("SHA-1")
-            .digest("${track.key}|${track.id}|$sizePx".toByteArray(Charsets.UTF_8))
+            .digest(ArtworkLoader.keyFor(track, sizePx).toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
     }
 
@@ -74,6 +74,21 @@ object ImageDiskCache {
                 // Not important.
             }
             throw e
+        }
+    }
+
+    /** Makes sure the picture is saved on the phone. Does nothing if it already is. */
+    fun ensureSaved(context: Context, track: Track, sizePx: Int) {
+        val app = context.applicationContext
+        val dir = folder(app)
+        val name = nameFor(track, sizePx)
+        if (File(dir, "$name.jpg").exists()) return
+        val noArt = File(dir, "$name.none")
+        if (noArt.exists() && System.currentTimeMillis() - noArt.lastModified() < NO_ART_RECHECK_MS) return
+        try {
+            getOrLoad(app, track, sizePx)
+        } catch (e: Exception) {
+            // This album has no picture.
         }
     }
 

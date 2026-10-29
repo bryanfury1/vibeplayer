@@ -492,11 +492,17 @@ private fun ArtistPage(
     }
 
     // The picture at the top: the artist's photo, or album art until the photo arrives (or if there is none).
-    val photo by produceState<Bitmap?>(initialValue = null, group.title, enabled) {
+    val photo by produceState<Bitmap?>(
+        initialValue = if (enabled) ArtistInfo.peekPicture(group.title, 1000) else null,
+        group.title, enabled,
+    ) {
         value = if (enabled) ArtistInfo.loadPicture(context, group.title, 1000) else null
     }
     val artTrack = latest?.tracks?.firstOrNull() ?: group.tracks.firstOrNull()
-    val art by produceState<Bitmap?>(initialValue = null, artTrack?.uri) {
+    val art by produceState<Bitmap?>(
+        initialValue = artTrack?.let { ArtworkLoader.peek(it, 1024) },
+        artTrack?.uri,
+    ) {
         value = if (artTrack == null) null else ArtworkLoader.load(context, artTrack, 1024)
     }
     val shown = photo ?: art
@@ -699,7 +705,10 @@ private fun AlbumPage(
     val context = LocalContext.current
 
     val artTrack = group.tracks.firstOrNull()
-    val art by produceState<Bitmap?>(initialValue = null, artTrack?.uri) {
+    val art by produceState<Bitmap?>(
+        initialValue = artTrack?.let { ArtworkLoader.peek(it, 1024) },
+        artTrack?.uri,
+    ) {
         value = if (artTrack == null) null else ArtworkLoader.load(context, artTrack, 1024)
     }
     val hue by produceState<Float?>(initialValue = null, art) {
@@ -712,8 +721,9 @@ private fun AlbumPage(
     val primaryArtist = remember(group) {
         splitArtists(artTrack?.artist.orEmpty()).firstOrNull() ?: artistName
     }
-    val artistGroup = remember(player.library, primaryArtist) {
-        artistGroups(player.library).firstOrNull { it.title.equals(primaryArtist, ignoreCase = true) }
+    val allArtists = rememberArtists(player.library)
+    val artistGroup = remember(allArtists, primaryArtist) {
+        allArtists.firstOrNull { it.title.equals(primaryArtist, ignoreCase = true) }
     }
 
     val year = remember(group) { albumYear(group) }

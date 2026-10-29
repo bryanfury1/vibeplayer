@@ -209,7 +209,10 @@ fun VibeApp(player: PlayerController) {
     LaunchedEffect(hasPermission, folders, LibraryEvents.version, ExtraSettings.libraryRevision) {
         if (hasPermission) {
             loading = true
-            player.updateLibrary(applyLibraryFilters(LibraryRepository.load(context, folders)))
+            val loaded = applyLibraryFilters(LibraryRepository.load(context, folders))
+            LibraryIndex.build(loaded)
+            player.updateLibrary(loaded)
+            LibraryIndex.adopt(player.library)
             loading = false
         }
     }
@@ -288,15 +291,15 @@ fun VibeApp(player: PlayerController) {
                     onOpenSettings = { showSettings = true },
                 )
                 2 -> {
-                    val artists = remember(player.library) { artistGroups(player.library) }
+                    val artists = rememberArtists(player.library)
                     GroupListScreenV2("Artists", artists, padding, roundArt = true) { openGroup = it }
                 }
                 3 -> {
-                    val albums = remember(player.library) { albumGroups(player.library) }
+                    val albums = rememberAlbums(player.library)
                     GroupListScreenV2("Albums", albums, padding) { openGroup = it }
                 }
                 4 -> {
-                    val genres = remember(player.library) { genreGroups(player.library) }
+                    val genres = rememberGenres(player.library)
                     GroupListScreen("Genres", genres, padding) { openGroup = it }
                 }
                 else -> {
@@ -684,8 +687,13 @@ private fun QueueRow(
 @Composable
 fun Artwork(track: Track?, sizePx: Int, modifier: Modifier, corner: Dp = 8.dp) {
     val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(initialValue = null, track?.uri) {
-        value = if (track == null) null else ArtworkLoader.load(context, track, sizePx)
+    val bitmap by produceState<Bitmap?>(
+        initialValue = track?.let { ArtworkLoader.peek(it, sizePx) },
+        track?.uri,
+        sizePx,
+    ) {
+        value = if (track == null) null
+        else ArtworkLoader.peek(track, sizePx) ?: ArtworkLoader.load(context, track, sizePx)
     }
     Box(
         modifier
