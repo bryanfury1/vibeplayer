@@ -32,7 +32,7 @@ class ArtistBioInfo(val text: String, val pageUrl: String)
 object ArtistInfo {
     private const val USER_AGENT = "VibePlayer/1.0 (personal Android music player)"
     private const val PICTURE_RECHECK_MS = 14L * 24 * 60 * 60 * 1000
-    private const val BIO_KEEP_MS = 60L * 24 * 60 * 60 * 1000
+    private const val BIO_KEEP_MS = 180L * 24 * 60 * 60 * 1000
     private const val BIO_RECHECK_MS = 14L * 24 * 60 * 60 * 1000
     private const val MAX_IMAGE_BYTES = 2_000_000
 
@@ -45,10 +45,19 @@ object ArtistInfo {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    // Words that show a Wikipedia page is about a musician or band (checked in the description and first sentence).
     private val musicWords = Regex(
         "\\b(singer|rapper|musician|band|songwriter|vocalist|guitarist|drummer|pianist|composer|" +
-            "producer|DJ|duo|group|trio|quartet|orchestra|recording artist|music)\\b",
+            "record producer|DJ|duo|trio|quartet|orchestra|recording artist|girl group|boy group|" +
+            "vocal group|musical group|rock group|hip hop|hip-hop)\\b",
         RegexOption.IGNORE_CASE,
+    )
+
+    // Wikipedia often adds a word in brackets when several things share a name, like "Drake (musician)".
+    private val titleSuffixes = listOf(
+        " (musician)", " (singer)", " (rapper)", " (band)", " (group)", " (duo)", " (DJ)",
+        " (record producer)", " (singer-songwriter)", " (American band)", " (British band)",
+        " (English band)", " (South Korean band)",
     )
 
     private fun folder(context: Context): File {
@@ -80,23 +89,54 @@ object ArtistInfo {
     // Pictures
     // -----------------------------------------------------------------------
 
+    /** 0 = small (lists), 1 = big, 2 = extra large (the full-width picture on an artist's page). */
+    private fun qualityFor(sizePx: Int): Int = when {
+        sizePx > 512 -> 2
+        sizePx > 256 -> 1
+        else -> 0
+    }
+
+    /** The picture if it is already in memory, otherwise null. Never waits. */
+    fun peekPicture(name: String, sizePx: Int): Bitmap? =
+        pictureMemory.get(fileKey(name) + "_q" + qualityFor(sizePx))
+
+    /** Makes sure the picture is saved on the phone, without keeping it in memory. */
+    suspend fun prefetchPicture(context: Context, name: String, sizePx: Int) {
+        val app = context.applicationContext
+        val quality = qualityFor(sizePx)
+        val id = fileKey(name)
+        withContext(Dispatchers.IO) {
+            val dir = folder(app)
+            val file = File(dir, "artist_${id}_q$quality.jpg")
+            val none = File(dir, "artist_$id.none")
+            if (file.exists()) return@withContext
+            if (none.exists()) {
+                if (System.currentTimeMillis() - none.lastModified() < PICTURE_RECHECK_MS) return@withContext
+                none.delete()
+            }
+            limiter.withPermit {
+                if (!file.exists()) downloadPicture(app, file, none, name, quality)
+            }
+        }
+    }
+
     /** The artist's picture, or null if there is none (or it can't be fetched right now). */
     suspend fun loadPicture(context: Context, name: String, sizePx: Int): Bitmap? {
-        val big = sizePx > 256
+        val quality = qualityFor(sizePx)
         val id = fileKey(name)
-        val memoryKey = id + (if (big) "_b" else "_m")
+        val memoryKey = id + "_q" + quality
         val inMemory = pictureMemory.get(memoryKey)
         if (inMemory != null) return inMemory
 
         val app = context.applicationContext
-        val bitmap = withContext(Dispatchers.IO) { readOrDownloadPicture(app, id, name, big) }
+        val bitmap = withContext(Dispatchers.IO) { readOrDownloadPicture(app, id, name, quality) }
         if (bitmap != null) pictureMemory.put(memoryKey, bitmap)
         return bitmap
     }
 
-    private suspend fun readOrDownloadPicture(app: Context, id: String, name: String, big: Boolean): Bitmap? {
+    private suspend fun readOrDownloadPicture(app: Context, id: String, name: String, quality: Int): Bitmap? {
         val dir = folder(app)
-        val file = File(dir, "artist_${id}_${if (big) "b" else "m"}.jpg")
+        val file = File(dir, "artist_${id}_q$quality.jpg")
         val none = File(dir, "artist_$id.none")
 
         val saved = readSavedPicture(file)
@@ -106,7 +146,7 @@ object ArtistInfo {
             none.delete()
         }
         return limiter.withPermit {
-            readSavedPicture(file) ?: downloadPicture(app, file, none, name, big)
+            readSavedPicture(file) ?: downloadPicture(app, file, none, name, quality)
         }
     }
 
@@ -121,7 +161,7 @@ object ArtistInfo {
         return bitmap
     }
 
-    private fun downloadPicture(app: Context, file: File, none: File, name: String, big: Boolean): Bitmap? {
+    private fun downloadPicture(app: Context, file: File, none: File, name: String, quality: Int): Bitmap? {
         try {
             val json = httpGetText("https://api.deezer.com/search/artist?limit=5&q=${enc(name)}") ?: return null
             val root = JSONObject(json)
@@ -134,7 +174,13 @@ object ArtistInfo {
                 for (i in 0 until data.length()) {
                     val item = data.optJSONObject(i) ?: continue
                     if (normalize(item.optString("name")) == wanted) {
-                        url = item.optString(if (big) "picture_big" else "picture_medium")
+                        url = item.optString(
+                            when (quality) {
+                                2 -> "picture_xl"
+                                1 -> "picture_big"
+                                else -> "picture_medium"
+                            }
+                        )
                         break
                     }
                 }
@@ -181,6 +227,93 @@ object ArtistInfo {
         }
     }
 
+    /** A short description of an album (from Wikipedia), or null if none was found. */
+    suspend fun loadAlbumBio(context: Context, album: String, artist: String): ArtistBioInfo? =
+        withContext(Dispatchers.IO) {
+            val app = context.applicationContext
+            val file = File(folder(app), "artist_${fileKey("album:" + album + "|" + artist)}.bio")
+
+            val saved = readBioFile(file)
+            if (saved != null) return@withContext saved.info
+
+            limiter.withPermit {
+                val again = readBioFile(file)
+                if (again != null) return@withPermit again.info
+                val result = fetchAlbumBio(album, artist)
+                if (result.definitive) writeBioFile(file, result.info)
+                result.info
+            }
+        }
+
+    private val albumWords = Regex(
+        "\\b(album|EP|mixtape|soundtrack|compilation|record|single)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * The summary of one Wikipedia page, accepted only if it is about an album AND the first part
+     * of the text mentions the artist (so a different album with the same name is never shown).
+     */
+    private fun albumSummaryFor(title: String, artistNormalized: String): SummaryResult {
+        val address = "https://en.wikipedia.org/api/rest_v1/page/summary/" +
+            enc(title.replace(' ', '_')).replace("+", "%20")
+        val json = httpGetText(address) ?: return SummaryResult(false, null)
+        val summary = JSONObject(json)
+        if (summary.optString("type") != "standard") return SummaryResult(true, null)
+        val extract = summary.optString("extract").trim()
+        if (extract.isEmpty()) return SummaryResult(true, null)
+        val about = summary.optString("description") + " " + extract.substringBefore(". ")
+        if (!albumWords.containsMatchIn(about)) return SummaryResult(true, null)
+        if (artistNormalized.isNotEmpty() && !normalize(extract.take(700)).contains(artistNormalized)) {
+            return SummaryResult(true, null)
+        }
+        val pageUrl = summary.optJSONObject("content_urls")
+            ?.optJSONObject("desktop")?.optString("page").orEmpty()
+        return SummaryResult(true, ArtistBioInfo(extract, pageUrl))
+    }
+
+    private fun fetchAlbumBio(album: String, artist: String): BioResult {
+        try {
+            val artistNormalized = normalize(artist)
+
+            // Step 1: the usual Wikipedia page names for an album.
+            val titles = listOf(
+                "$album ($artist album)",
+                "$album (album)",
+                album,
+                "$album ($artist EP)",
+                "$album (EP)",
+                "$album (mixtape)",
+                "$album (soundtrack)",
+            )
+            for (title in titles) {
+                val attempt = albumSummaryFor(title, artistNormalized)
+                if (attempt.bio != null) return BioResult(attempt.bio, true)
+            }
+
+            // Step 2: search, accepting only a page whose title matches the album name exactly.
+            val query = enc("\"$album\" \"$artist\" album")
+            val searchJson = httpGetText(
+                "https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=5&format=json&srsearch=$query"
+            ) ?: return BioResult(null, false)
+            val results = JSONObject(searchJson).optJSONObject("query")?.optJSONArray("search")
+                ?: return BioResult(null, true)
+            val wanted = normalize(album)
+            var checked = 0
+            for (i in 0 until results.length()) {
+                val title = results.optJSONObject(i)?.optString("title").orEmpty()
+                if (normalize(title.substringBefore(" (")) != wanted) continue
+                checked++
+                if (checked > 3) break
+                val attempt = albumSummaryFor(title, artistNormalized)
+                if (attempt.bio != null) return BioResult(attempt.bio, true)
+            }
+            return BioResult(null, true)
+        } catch (e: Exception) {
+            return BioResult(null, false)
+        }
+    }
+
     private fun readBioFile(file: File): BioFile? {
         if (!file.exists()) return null
         try {
@@ -212,8 +345,44 @@ object ArtistInfo {
         }
     }
 
+    private class SummaryResult(val exists: Boolean, val bio: ArtistBioInfo?)
+
+    /**
+     * Asks Wikipedia for the short summary of the page with this title (Wikipedia follows its own
+     * redirects, so "A$AP Rocky" finds "ASAP Rocky"). The bio is only returned if the page is about music.
+     */
+    private fun summaryFor(title: String): SummaryResult {
+        val address = "https://en.wikipedia.org/api/rest_v1/page/summary/" +
+            enc(title.replace(' ', '_')).replace("+", "%20")
+        val json = httpGetText(address) ?: return SummaryResult(false, null)
+        val summary = JSONObject(json)
+        if (summary.optString("type") != "standard") return SummaryResult(true, null)
+        val extract = summary.optString("extract").trim()
+        if (extract.isEmpty()) return SummaryResult(true, null)
+        val about = summary.optString("description") + " " + extract.substringBefore(". ")
+        if (!musicWords.containsMatchIn(about)) return SummaryResult(true, null)
+        val pageUrl = summary.optJSONObject("content_urls")
+            ?.optJSONObject("desktop")?.optString("page").orEmpty()
+        return SummaryResult(true, ArtistBioInfo(extract, pageUrl))
+    }
+
     private fun fetchBio(name: String): BioResult {
         try {
+            // Step 1: the page with exactly this name.
+            val first = summaryFor(name)
+            if (first.bio != null) return BioResult(first.bio, true)
+
+            // Step 2: if that page exists but isn't about a musician (for example a list of
+            // meanings of "Drake"), try the usual bracketed versions.
+            if (first.exists) {
+                for (suffix in titleSuffixes) {
+                    val attempt = summaryFor(name + suffix)
+                    if (attempt.bio != null) return BioResult(attempt.bio, true)
+                }
+            }
+
+            // Step 3: search Wikipedia. Only a page whose title matches the name exactly is accepted,
+            // so a different artist with a similar name is never shown by mistake.
             val query = enc("\"$name\" (musician OR singer OR band OR rapper OR group)")
             val searchJson = httpGetText(
                 "https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=5&format=json&srsearch=$query"
@@ -225,24 +394,11 @@ object ArtistInfo {
             var checked = 0
             for (i in 0 until results.length()) {
                 val title = results.optJSONObject(i)?.optString("title").orEmpty()
-                // "Drake (musician)" counts as "Drake". The name must match exactly, so a different
-                // artist with a similar name is never shown by mistake.
                 if (normalize(title.substringBefore(" (")) != wanted) continue
                 checked++
                 if (checked > 3) break
-
-                val address = "https://en.wikipedia.org/api/rest_v1/page/summary/" +
-                    enc(title.replace(' ', '_')).replace("+", "%20")
-                val summaryJson = httpGetText(address) ?: continue
-                val summary = JSONObject(summaryJson)
-                if (summary.optString("type") != "standard") continue
-                val extract = summary.optString("extract").trim()
-                val about = summary.optString("description") + " " + extract
-                if (extract.isEmpty() || !musicWords.containsMatchIn(about)) continue
-
-                val pageUrl = summary.optJSONObject("content_urls")
-                    ?.optJSONObject("desktop")?.optString("page").orEmpty()
-                return BioResult(ArtistBioInfo(extract, pageUrl), true)
+                val attempt = summaryFor(title)
+                if (attempt.bio != null) return BioResult(attempt.bio, true)
             }
             return BioResult(null, true)
         } catch (e: Exception) {

@@ -171,6 +171,7 @@ fun VibeApp(player: PlayerController) {
     }
     var tab by remember { mutableIntStateOf(0) }
     var openGroup by remember { mutableStateOf<TrackGroup?>(null) }
+    var groupHistory by remember { mutableStateOf<List<TrackGroup>>(emptyList()) }
     var openPlaylistId by remember { mutableStateOf<String?>(null) }
     var folders by remember { mutableStateOf(FolderStore.load(context)) }
     var showFolders by remember { mutableStateOf(false) }
@@ -208,7 +209,10 @@ fun VibeApp(player: PlayerController) {
     LaunchedEffect(hasPermission, folders, LibraryEvents.version, ExtraSettings.libraryRevision) {
         if (hasPermission) {
             loading = true
-            player.updateLibrary(applyLibraryFilters(LibraryRepository.load(context, folders)))
+            val loaded = applyLibraryFilters(LibraryRepository.load(context, folders))
+            LibraryIndex.build(loaded)
+            player.updateLibrary(loaded)
+            LibraryIndex.adopt(player.library)
             loading = false
         }
     }
@@ -246,6 +250,7 @@ fun VibeApp(player: PlayerController) {
                                 onClick = {
                                     tab = index
                                     openGroup = null
+                                    groupHistory = emptyList()
                                     openPlaylistId = null
                                 },
                                 icon = { Icon(icon, contentDescription = label) },
@@ -258,7 +263,20 @@ fun VibeApp(player: PlayerController) {
         ) { padding ->
             val group = openGroup
             if (group != null) {
-                GroupScreen(group, player, padding, onBack = { openGroup = null })
+                GroupScreenV2(
+                    group,
+                    player,
+                    padding,
+                    onBack = {
+                        val previous = groupHistory.lastOrNull()
+                        groupHistory = groupHistory.dropLast(1)
+                        openGroup = previous
+                    },
+                    onOpenGroup = { next ->
+                        groupHistory = groupHistory + group
+                        openGroup = next
+                    },
+                )
             } else when (tab) {
                 0 -> HomeScreen(player, padding, onOpenSettings = { showSettings = true }) { openGroup = it }
                 1 -> LibraryScreen(
@@ -273,15 +291,15 @@ fun VibeApp(player: PlayerController) {
                     onOpenSettings = { showSettings = true },
                 )
                 2 -> {
-                    val artists = remember(player.library) { artistGroups(player.library) }
-                    GroupListScreen("Artists", artists, padding, roundArt = true) { openGroup = it }
+                    val artists = rememberArtists(player.library)
+                    GroupListScreenV2("Artists", artists, padding, roundArt = true) { openGroup = it }
                 }
                 3 -> {
-                    val albums = remember(player.library) { albumGroups(player.library) }
-                    GroupListScreen("Albums", albums, padding) { openGroup = it }
+                    val albums = rememberAlbums(player.library)
+                    GroupListScreenV2("Albums", albums, padding) { openGroup = it }
                 }
                 4 -> {
-                    val genres = remember(player.library) { genreGroups(player.library) }
+                    val genres = rememberGenres(player.library)
                     GroupListScreen("Genres", genres, padding) { openGroup = it }
                 }
                 else -> {
@@ -316,11 +334,10 @@ fun VibeApp(player: PlayerController) {
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it }),
         ) {
-            NowPlayingScreen(
+            NowPlayingScreenV2(
                 player,
                 onClose = { showNowPlaying = false },
                 onOpenQueue = { showQueue = true },
-                onOpenLyricsFullscreen = { showLyricsFull = true },
                 onOpenAmbient = { showAmbient = true },
             )
         }
@@ -368,7 +385,11 @@ fun VibeApp(player: PlayerController) {
     }
 
     // Back closes an open artist/album/genre page.
-    BackHandler(enabled = openGroup != null) { openGroup = null }
+    BackHandler(enabled = openGroup != null) {
+        val previous = groupHistory.lastOrNull()
+        groupHistory = groupHistory.dropLast(1)
+        openGroup = previous
+    }
     BackHandler(enabled = tab == 5 && openPlaylistId != null) { openPlaylistId = null }
     // The phone's Back button closes the Now Playing screen first.
     BackHandler(enabled = showNowPlaying) { showNowPlaying = false }
@@ -666,8 +687,13 @@ private fun QueueRow(
 @Composable
 fun Artwork(track: Track?, sizePx: Int, modifier: Modifier, corner: Dp = 8.dp) {
     val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(initialValue = null, track?.uri) {
-        value = if (track == null) null else ArtworkLoader.load(context, track, sizePx)
+    val bitmap by produceState<Bitmap?>(
+        initialValue = track?.let { ArtworkLoader.peek(it, sizePx) },
+        track?.uri,
+        sizePx,
+    ) {
+        value = if (track == null) null
+        else ArtworkLoader.peek(track, sizePx) ?: ArtworkLoader.load(context, track, sizePx)
     }
     Box(
         modifier

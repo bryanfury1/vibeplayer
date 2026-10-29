@@ -138,16 +138,9 @@ fun HomeScreen(
     var timeFrame by remember { mutableStateOf(TimeFrame.WEEK) }
 
     // Plays are saved by file path (newer) or by song address (older), so accept both names.
-    val trackByUri = remember(library) {
-        val map = HashMap<String, Track>()
-        for (track in library) {
-            map[track.uri.toString()] = track
-            map[track.key] = track
-        }
-        map
-    }
-    val artists = remember(library) { artistGroups(library) }
-    val albums = remember(library) { albumGroups(library) }
+    val trackByUri = rememberTrackByUri(library)
+    val artists = rememberArtists(library)
+    val albums = rememberAlbums(library)
     val artistByKey = remember(artists) { artists.associateBy { it.key } }
     val albumByKey = remember(albums) { albums.associateBy { it.key } }
 

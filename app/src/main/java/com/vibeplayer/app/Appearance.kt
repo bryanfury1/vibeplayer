@@ -29,8 +29,11 @@ fun themePreviewColor(index: Int): Color =
     Color.hsl(colorThemeHues[index.coerceIn(0, colorThemeHues.lastIndex)], 0.65f, 0.60f)
 
 /** Builds a full set of app colors from one hue. */
-private fun paletteScheme(index: Int, dark: Boolean): ColorScheme {
-    val h = colorThemeHues[index.coerceIn(0, colorThemeHues.lastIndex)]
+private fun paletteScheme(index: Int, dark: Boolean): ColorScheme =
+    schemeForHue(colorThemeHues[index.coerceIn(0, colorThemeHues.lastIndex)], dark)
+
+/** Builds a full set of app colors from one hue (a position on the color wheel, 0 to 360). */
+fun schemeForHue(h: Float, dark: Boolean): ColorScheme {
     val t = (h + 60f) % 360f
     return if (dark) {
         darkColorScheme(

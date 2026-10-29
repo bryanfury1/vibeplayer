@@ -32,6 +32,8 @@ object ExtraSettings {
     /** Which color theme to use when wallpaper colors are off (a position in colorThemeNames). */
     var colorTheme by mutableIntStateOf(0)
     var amoledBlack by mutableStateOf(false)
+    /** Now Playing takes its accent colors from the album art. */
+    var nowPlayingArtColors by mutableStateOf(true)
 
     // ---- Home screen sections ----
     var homeRecentSongs by mutableStateOf(true)
@@ -58,6 +60,13 @@ object ExtraSettings {
     /** The name of the preset in use, or "Custom" once a slider has been moved. */
     var eqPreset by mutableStateOf("Flat")
 
+    // ---- Offline downloads ("Download everything now") ----
+    var prefetchArt by mutableStateOf(true)
+    var prefetchPhotos by mutableStateOf(true)
+    var prefetchBios by mutableStateOf(true)
+    var prefetchAlbumBios by mutableStateOf(false)
+    var prefetchWifiOnly by mutableStateOf(true)
+
     // ---- Caching ----
     var imageCacheEnabled by mutableStateOf(true)
     /** The most disk space the saved album art may use, in megabytes. */
@@ -75,6 +84,7 @@ object ExtraSettings {
         useDynamicColor = prefs.getBoolean("use_dynamic_color", true)
         colorTheme = prefs.getInt("color_theme", 0)
         amoledBlack = prefs.getBoolean("amoled_black", false)
+        nowPlayingArtColors = prefs.getBoolean("now_playing_art_colors", true)
         homeRecentSongs = prefs.getBoolean("home_recent_songs", true)
         homeRecentArtists = prefs.getBoolean("home_recent_artists", true)
         homeRecentAlbums = prefs.getBoolean("home_recent_albums", true)
@@ -88,6 +98,11 @@ object ExtraSettings {
         eqEnabled = prefs.getBoolean("eq_enabled", false)
         eqLevels = prefs.getString("eq_levels", "").orEmpty().split(',').mapNotNull { it.trim().toIntOrNull() }
         eqPreset = prefs.getString("eq_preset", "Flat") ?: "Flat"
+        prefetchArt = prefs.getBoolean("prefetch_art", true)
+        prefetchPhotos = prefs.getBoolean("prefetch_photos", true)
+        prefetchBios = prefs.getBoolean("prefetch_bios", true)
+        prefetchAlbumBios = prefs.getBoolean("prefetch_album_bios", false)
+        prefetchWifiOnly = prefs.getBoolean("prefetch_wifi_only", true)
         imageCacheEnabled = prefs.getBoolean("image_cache_enabled", true)
         imageCacheMb = prefs.getInt("image_cache_mb", 100)
         lyricsCacheEnabled = prefs.getBoolean("lyrics_cache_enabled", true)
@@ -101,6 +116,7 @@ object ExtraSettings {
             .putBoolean("use_dynamic_color", useDynamicColor)
             .putInt("color_theme", colorTheme)
             .putBoolean("amoled_black", amoledBlack)
+            .putBoolean("now_playing_art_colors", nowPlayingArtColors)
             .putBoolean("home_recent_songs", homeRecentSongs)
             .putBoolean("home_recent_artists", homeRecentArtists)
             .putBoolean("home_recent_albums", homeRecentAlbums)
@@ -114,6 +130,11 @@ object ExtraSettings {
             .putBoolean("eq_enabled", eqEnabled)
             .putString("eq_levels", eqLevels.joinToString(","))
             .putString("eq_preset", eqPreset)
+            .putBoolean("prefetch_art", prefetchArt)
+            .putBoolean("prefetch_photos", prefetchPhotos)
+            .putBoolean("prefetch_bios", prefetchBios)
+            .putBoolean("prefetch_album_bios", prefetchAlbumBios)
+            .putBoolean("prefetch_wifi_only", prefetchWifiOnly)
             .putBoolean("image_cache_enabled", imageCacheEnabled)
             .putInt("image_cache_mb", imageCacheMb)
             .putBoolean("lyrics_cache_enabled", lyricsCacheEnabled)

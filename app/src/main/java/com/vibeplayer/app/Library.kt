@@ -27,6 +27,7 @@ data class Track(
     val trackNumber: Int,
     val dateAdded: Long,
     val path: String,
+    val year: Int = 0,
 )
 
 /**
@@ -101,6 +102,7 @@ object LibraryRepository {
                 MediaStore.Audio.Media.TRACK,
                 MediaStore.Audio.Media.DATE_ADDED,
                 MediaStore.Audio.Media.DATA,
+                MediaStore.Audio.Media.YEAR,
             )
             if (Build.VERSION.SDK_INT >= 29) projection.add(MediaStore.MediaColumns.VOLUME_NAME)
             if (Build.VERSION.SDK_INT >= 30) projection.add(MediaStore.Audio.Media.GENRE)
@@ -150,6 +152,7 @@ object LibraryRepository {
                 val trackCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
                 val addedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val yearCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
                 val genreCol =
                     if (Build.VERSION.SDK_INT >= 30)
                         cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.GENRE)
@@ -181,6 +184,7 @@ object LibraryRepository {
                             trackNumber = cursor.getInt(trackCol),
                             dateAdded = cursor.getLong(addedCol),
                             path = cursor.getString(dataCol) ?: "",
+                            year = cursor.getInt(yearCol),
                         )
                     )
                 }
@@ -194,13 +198,33 @@ object LibraryRepository {
 
 /** Loads album art pictures and remembers them so scrolling stays smooth. */
 object ArtworkLoader {
-    private val cache = object : LruCache<String, Bitmap>(32 * 1024 * 1024) {
+    private val cache = object : LruCache<String, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 8).toInt().coerceIn(32 * 1024 * 1024, 128 * 1024 * 1024)
+    ) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
     private val failed = ConcurrentHashMap.newKeySet<String>()
 
-    suspend fun load(context: Context, track: Track, sizePx: Int): Bitmap? {
-        val key = "${track.uri}_$sizePx"
+    /** Pictures are kept at three standard sizes, so lists, Home and pages share the same copies. */
+    private fun bucket(sizePx: Int): Int = when {
+        sizePx <= 192 -> 192
+        sizePx <= 384 -> 384
+        else -> 1024
+    }
+
+    /** One picture per album (the songs of an album share it). Songs without an album get their own. */
+    fun keyFor(track: Track, sizePx: Int): String {
+        val size = bucket(sizePx)
+        return if (track.album.isNotBlank() && track.album != "Unknown Album") "album_${track.albumId}_$size"
+        else "${track.uri}_$size"
+    }
+
+    /** The picture if it is already in memory, otherwise null. Never waits. */
+    fun peek(track: Track, sizePx: Int): Bitmap? = cache.get(keyFor(track, sizePx))
+
+    suspend fun load(context: Context, track: Track, requestedSizePx: Int): Bitmap? {
+        val sizePx = bucket(requestedSizePx)
+        val key = keyFor(track, sizePx)
         cache.get(key)?.let { return it }
         if (key in failed) return null
         if (Build.VERSION.SDK_INT < 29) return null
